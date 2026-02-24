@@ -1,8 +1,6 @@
 {
   "name": "holiday-art-bot",
   "version": "1.0.0",
-  "description": "Daily holiday art generator for Twitch community",
-  "main": "holidayArt.mjs",
   "type": "module",
   "dependencies": {
     "@google/genai": "^1.42.0",
