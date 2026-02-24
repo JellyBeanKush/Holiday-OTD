@@ -1,5 +1,4 @@
 import { GoogleGenAI } from "@google/genai";
-import fetch from 'node-fetch';
 
 const CONFIG = {
     GEMINI_KEY: process.env.GEMINI_API_KEY,
@@ -10,19 +9,14 @@ async function main() {
     try {
         const client = new GoogleGenAI({ apiKey: CONFIG.GEMINI_KEY });
         
-        // FIX: Force West Coast (PST) time regardless of where the server is
+        // 1. Force West Coast (PST) Time
         const now = new Date();
         const pstDate = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
         
-        const dateHeader = pstDate.toLocaleDateString('en-US', { 
-            month: 'long', 
-            day: 'numeric', 
-            year: 'numeric' 
-        });
-        
+        const dateHeader = pstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
         const dayMonth = pstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 
-        // 1. Get Holiday Data
+        // 2. Get Holiday Data (using Text Model)
         const textResult = await client.models.generateContent({
             model: "gemini-2.5-flash",
             contents: [{ role: "user", parts: [{ text: `Today is ${dayMonth}. Identify a fun national holiday. Return ONLY JSON: {"holiday": "Name", "fact": "One sentence fun fact"}` }] }]
@@ -30,45 +24,53 @@ async function main() {
         
         const data = JSON.parse(textResult.text.replace(/```json|```/g, ""));
 
-        // 2. Generate Image
-        const imgPrompt = `A vibrant digital illustration for "${data.holiday}". 
-        Text: "${data.holiday}" in bold white at the top. 
-        Characters: A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. 
-        Gaming aesthetic.`;
+        // 3. Generate Image (using dedicated Image Model)
+        const imgPrompt = `A vibrant digital illustration for "${data.holiday}". Text: "${data.holiday}" in bold white at the top. Characters: A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. Gaming aesthetic.`;
 
-        const imageResult = await client.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [{ role: "user", parts: [{ text: imgPrompt }] }]
+        const imageResult = await client.models.generateImages({
+            model: 'imagen-3.0-generate-002',
+            prompt: imgPrompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '1:1'
+            }
         });
 
-        // FIX: Extracting the actual image file data
-        const imagePart = imageResult.candidates?.[0]?.content?.parts?.find(p => p.inlineData || p.fileData);
-        let imageUrl = "";
-        
-        if (imagePart?.inlineData) {
-            imageUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-        }
+        // 4. Convert the image data into a physical File/Blob
+        const base64Data = imageResult.generatedImages[0].image.imageBytes;
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
 
-        // 3. Post to Discord in the requested format
+        // 5. Package it all up for Discord
+        const formData = new FormData();
+        
+        // Attach the image file!
+        formData.append('file', blob, 'doodle.jpg');
+
+        // Note: \n instead of \n\n to remove the double space!
         const payload = {
-            content: `**${dateHeader}**\n\n# ${data.holiday.toUpperCase()}\n${data.fact}`,
-            embeds: imageUrl ? [{
-                image: { url: imageUrl },
+            content: `**${dateHeader}**\n# ${data.holiday.toUpperCase()}\n${data.fact}`,
+            embeds: [{
+                // Tell Discord to look at the attached file we just made
+                image: { url: 'attachment://doodle.jpg' },
                 color: 0x00FFFF
-            }] : []
+            }]
         };
 
+        formData.append('payload_json', JSON.stringify(payload));
+
+        // Send to Discord
         const res = await fetch(CONFIG.DISCORD_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: formData
         });
 
-        if (res.ok) console.log(`Successfully posted for ${dateHeader}`);
+        if (res.ok) console.log(`Successfully posted ${data.holiday} with image!`);
         else console.error("Discord Error:", await res.text());
 
     } catch (err) {
-        console.error("Critical Bot Error:", err.message);
+        console.error("Critical Bot Error:", err);
         process.exit(1);
     }
 }
