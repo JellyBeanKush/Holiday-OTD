@@ -1,11 +1,8 @@
 {
-  "name": "holiday-otd",
-  "version": "1.0.0",
-  "description": "Daily holiday art generator for Twitch community",
-  "main": "holidayArt.mjs",
   "type": "module",
   "dependencies": {
-    "@google/genai": "^1.42.0",
-    "node-fetch": "^3.3.2"
+    "@google/genai": "^0.21.0",
+    "node-fetch": "^3.3.2",
+    "formdata-node": "^6.0.3"
   }
 }
