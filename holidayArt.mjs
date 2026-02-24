@@ -6,9 +6,9 @@ const CONFIG = {
     DISCORD_URL: "https://discord.com/api/webhooks/1475400524881854495/A2eo18Vsm-cIA0p9wN-XdB60vMdEcZ5PJ1MOGLD5sRDM1weRLRk_1xWKo5C7ANTzjlH2?thread_id=1475685722341245239"
 };
 
-// This function tries every available model tier before giving up
 async function generateWithUltimateFallback(client, options, isImage = false) {
-    const modelTiers = ["gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"];
+    // 2026 Stable Model Strings
+    const modelTiers = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
     
     for (const modelName of modelTiers) {
         try {
@@ -19,21 +19,22 @@ async function generateWithUltimateFallback(client, options, isImage = false) {
             });
 
             if (isImage) {
-                const part = result.candidates[0].content.parts.find(p => p.inlineData || p.fileData);
-                if (!part) continue; // Try next model if no image generated
+                const part = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData || p.fileData);
+                if (!part) continue;
                 return part;
             }
             return result.text;
         } catch (err) {
-            if (err.status === 429) {
-                console.warn(`${modelName} quota full. Trying next tier...`);
-                await new Promise(r => setTimeout(r, 2000)); // Short 2s breather
+            // If quota is exhausted (429) or model name is slightly off in this region (404), move to next
+            if (err.status === 429 || err.status === 404) {
+                console.warn(`${modelName} unavailable. Pivoting to next tier...`);
+                await new Promise(r => setTimeout(r, 2000));
                 continue; 
             }
             throw err;
         }
     }
-    throw new Error("All Gemini models are currently exhausted. Try again in 1 hour.");
+    throw new Error("All model tiers (2.5 and 2.0) are currently exhausted.");
 }
 
 async function main() {
@@ -48,8 +49,11 @@ async function main() {
         
         const data = JSON.parse(textResponse.replace(/```json|```/g, ""));
 
-        // 2. Generate Image
-        const imgPrompt = `A vibrant digital illustration for "${data.holiday}". Text: "${data.holiday}" in bold white font at the top. Characters: A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. Style: Gaming aesthetic.`;
+        // 2. Generate Image with character descriptions
+        const imgPrompt = `A vibrant digital illustration for "${data.holiday}". 
+        Text: "${data.holiday}" in bold white at the top. 
+        Characters: A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. 
+        Style: Gaming aesthetic. NO other text.`;
 
         const imagePart = await generateWithUltimateFallback(client, {
             contents: [{ role: "user", parts: [{ text: imgPrompt }] }]
@@ -57,24 +61,23 @@ async function main() {
 
         let imageUrl = imagePart?.inlineData 
             ? `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}` 
-            : "https://via.placeholder.com/512.png?text=Art+Rendering+Delayed";
+            : "https://via.placeholder.com/512.png?text=Art+Rendering...";
 
         // 3. Post to Discord
-        const res = await fetch(CONFIG.DISCORD_URL, {
+        await fetch(CONFIG.DISCORD_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 embeds: [{
                     title: `🎨 Daily Doodle: ${data.holiday}`,
-                    description: data.fact,
+                    description: `**Did you know?** ${data.fact}`,
                     image: { url: imageUrl },
                     color: 0x00FFFF
                 }]
             })
         });
 
-        if (res.ok) console.log(`Post Successful for ${data.holiday}!`);
-        else console.error("Discord Error:", await res.text());
+        console.log(`Successfully posted: ${data.holiday}`);
 
     } catch (err) {
         console.error("Critical Bot Error:", err.message);
