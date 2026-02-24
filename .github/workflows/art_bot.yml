@@ -1,28 +1,29 @@
-name: Daily Holiday Art Bot
+name: Daily Holiday Doodle
 
 on:
   schedule:
-    # This runs at 14:00 UTC (9:00 AM EST / 6:00 AM PST) every day
-    - cron: '0 14 * * *'
+    # Runs at 17:00 UTC (9:00 AM PST) every day
+    - cron: '0 17 * * *'
   workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
-  post-art:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: npm install
 
-      - name: Generate and Post Art
+      - name: Run Art Bot
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DISCORD_HOLIDAY_WEBHOOK: ${{ secrets.DISCORD_HOLIDAY_WEBHOOK }}
         run: node holidayArt.mjs
