@@ -1,7 +1,7 @@
 {
   "type": "module",
   "dependencies": {
-    "@google/genai": "^0.21.0",
+    "@google/genai": "^0.1.0",
     "node-fetch": "^3.3.2",
     "formdata-node": "^6.0.3"
   }
