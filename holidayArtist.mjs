@@ -1,48 +1,43 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fetch from 'node-fetch';
-import fs from 'fs';
 
 const CONFIG = {
     GEMINI_KEY: process.env.GEMINI_API_KEY,
-    DISCORD_URL: process.env.DISCORD_HOLIDAY_WEBHOOK, 
-    SAVE_FILE: 'current_holiday.txt',
-    MODELS: ["gemini-2.5-flash", "gemini-1.5-flash"]
+    DISCORD_URL: process.env.DISCORD_HOLIDAY_WEBHOOK
 };
 
 async function main() {
     const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
-    const today = new Date();
-    const todayFormatted = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    // Use the latest model for better reasoning
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    // 1. Get the best holiday for today
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const holidaySearch = await model.generateContent(`List the most prominent national or international holiday for ${todayFormatted}. 
-    Pick the one that would make the coolest gaming-style art. 
-    Return ONLY the name of the holiday.`);
-    const holidayName = (await holidaySearch.response.text()).trim();
-
-    // 2. Generate the Image with Text
-    const imgModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    // 1. Get Today's Holiday
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    const infoPrompt = `Today is ${dateStr}. Identify the most fun national holiday. 
+    Return JSON: {"holiday": "Name", "fact": "One sentence fun fact"}`;
     
-    // We tell the AI exactly how to handle the text
-    const imgPrompt = `A high-quality 3D render for "${holidayName}". 
-    Avoid having any text on the image. Make sure there are no weird AI artifacts. 
-    Aesthetic: Vibrant gaming setup, Twitch-inspired lighting, cozy but high-tech, cute and fun! 
-    Include two central characters: a small, round, vibrant yellow bear with a cream-colored belly patch and a cheerful, pill-shaped pink jellybean character wearing a signature teal baseball cap. both characters have only two legs and two arms each.`;
+    const infoResult = await model.generateContent(infoPrompt);
+    const data = JSON.parse(infoResult.response.text().replace(/```json|```/g, ""));
 
-    console.log(`Creating art for: ${holidayName}`);
+    // 2. The Updated Default Image Prompt
+    const imgPrompt = `A high-quality digital illustration for "${data.holiday}". 
+    The text "${data.holiday}" must be written in a bold, clean, stylized font at the top of the image. 
+    Include two central characters: a small, round, vibrant yellow bear with a cream-colored belly patch 
+    and a cheerful, pill-shaped pink jellybean character wearing a signature teal baseball cap. 
+    The duo is celebrating ${data.holiday} in a cozy gaming room with neon lighting. 
+    Ensure the text is spelled exactly as "${data.holiday}".`;
 
-    // This calls the Nano Banana engine via the 2.5 model
-    const result = await imgModel.generateContent([imgPrompt]);
-    const imageUrl = result.response.candidates[0].content.parts.find(p => p.inlineData || p.fileData);
+    // 3. Generate Image (Assuming the Nano-integrated model)
+    const imageResult = await model.generateContent([imgPrompt]);
+    const imageUrl = imageResult.response.candidates[0].content.parts.find(p => p.inlineData || p.fileData);
 
-    // 3. Post to Discord
+    // 4. Send to Discord
     const payload = {
         embeds: [{
-            title: `🎨 Today's Holiday: ${holidayName}`,
-            image: { url: imageUrl }, 
-            color: 0x00ffcc,
-            footer: { text: `Generated for the community — ${todayFormatted}` }
+            title: `📅 ${data.holiday}`,
+            description: data.fact,
+            image: { url: imageUrl },
+            color: 0xFFD700 // Golden Yellow
         }]
     };
 
@@ -53,4 +48,4 @@ async function main() {
     });
 }
 
-main().catch(err => console.error(err));
+main();
