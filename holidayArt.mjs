@@ -1,64 +1,69 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from '@google/genai';
+import 'dotenv/config';
 import fetch from 'node-fetch';
 import { FormData, Blob } from 'formdata-node';
 
-const CONFIG = {
-    GEMINI_KEY: process.env.GEMINI_API_KEY,
-    // Using your specific webhook and thread ID from the logs
-    DISCORD_URL: "https://discord.com/api/webhooks/1475400524881854495/A2eo18Vsm-cIA0p9wN-XdB60vMdEcZ5PJ1MOGLD5sRDM1weRLRk_1xWKo5C7ANTzjlH2?thread_id=1475685722341245239"
-};
+const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 async function main() {
     try {
-        const client = new GoogleGenAI({ apiKey: CONFIG.GEMINI_KEY });
-        const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+        console.log("🎨 Determining today's holiday and generating art...");
 
-        const now = new Date();
-        const pstDate = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
-        const dateHeader = pstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-
-        // 1. Generate Holiday Data
-        const prompt = `Today is ${dateHeader}. Identify a fun national holiday for today. Return ONLY JSON: {"holiday": "Name", "fact": "One sentence fun fact"}`;
-        const textResult = await model.generateContent(prompt);
-        const data = JSON.parse(textResult.response.text().replace(/```json|```/g, ""));
-
-        // 2. Generate Image URL with your specific characters
-        // Note: Using your requested character descriptions for the yellow bear and teal-capped jellybean
-        const imgPrompt = `Vibrant digital art for ${data.holiday}. A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. High quality, 2d vector style, solid background.`;
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1e6)}`;
-
-        // 3. Download the image into memory
-        console.log(`Downloading image for ${data.holiday}...`);
-        const imageResponse = await fetch(imageUrl);
-        if (!imageResponse.ok) throw new Error("Failed to download image from API");
+        // 1. Generate the Image Prompt using Gemini
+        // Today is Feb 23: National Dog Biscuit Day
+        const promptSystem = `Today is February 23, National Dog Biscuit Day. 
+        Create a detailed prompt for an image generator featuring two characters:
+        1. A small, round, yellow bear with a cream-colored belly.
+        2. A pink, pill-shaped jellybean character wearing a teal baseball cap.
         
-        const arrayBuffer = await imageResponse.arrayBuffer();
-        const imageBlob = new Blob([arrayBuffer], { type: 'image/png' });
+        They should be celebrating the holiday by baking giant, gourmet dog biscuits in a cozy, 
+        vibrant kitchen surrounded by happy, cartoonish dogs. The style should be 3D-render, 
+        whimsical, and high-quality. Do not use any names for the characters.`;
 
-        // 4. Build the Multipart Form Data for Discord
-        const formData = new FormData();
-        const payload = {
-            content: `**${dateHeader}**\n# ${data.holiday.toUpperCase()}\n${data.fact}`,
-        };
-
-        formData.set('payload_json', JSON.stringify(payload));
-        formData.set('files[0]', imageBlob, 'holiday_art.png');
-
-        // 5. Post to Discord
-        const res = await fetch(CONFIG.DISCORD_URL, {
-            method: 'POST',
-            body: formData
+        const textResponse = await client.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: promptSystem
         });
 
-        if (res.ok) {
-            console.log(`✅ Successfully posted ${data.holiday} with image attachment!`);
+        const imagePrompt = textResponse.text;
+        console.log("✨ Generated Prompt:", imagePrompt);
+
+        // 2. Generate the Image using Imagen
+        const imageResult = await client.models.generateImages({
+            model: 'imagen-3',
+            prompt: imagePrompt,
+            config: {
+                numberOfImages: 1,
+                aspectRatio: '1:1'
+            }
+        });
+
+        const imageBase64 = imageResult.generatedImages[0].imageBinary; // Base64 string
+        const imageBuffer = Buffer.from(imageBase64, 'base64');
+
+        // 3. Send to Discord via Webhook
+        const form = new FormData();
+        const blob = new Blob([imageBuffer], { type: 'image/png' });
+        
+        form.append('file', blob, 'holiday_art.png');
+        form.append('payload_json', JSON.stringify({
+            content: `🐶 **Happy National Dog Biscuit Day!** 🍪\nGenerated for today's stream art!`,
+        }));
+
+        const discordResponse = await fetch(DISCORD_WEBHOOK_URL, {
+            method: 'POST',
+            body: form
+        });
+
+        if (discordResponse.ok) {
+            console.log("✅ Art successfully posted to Discord!");
         } else {
-            const errorText = await res.text();
-            console.error("❌ Discord Webhook Error:", errorText);
+            console.error("❌ Discord Error:", await discordResponse.text());
         }
 
-    } catch (err) {
-        console.error("❌ Critical Bot Error:", err);
+    } catch (error) {
+        console.error("❌ Critical Bot Error:", error);
         process.exit(1);
     }
 }
