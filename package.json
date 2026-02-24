@@ -5,7 +5,7 @@
   "main": "holidayArt.mjs",
   "type": "module",
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/genai": "^1.42.0",
     "node-fetch": "^3.3.2"
   }
 }
