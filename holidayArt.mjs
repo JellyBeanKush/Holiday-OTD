@@ -7,8 +7,8 @@ const CONFIG = {
 };
 
 async function generateWithFallback(genAI, prompt, isImage = false) {
-    // List of models to try in order
-    const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+    // Correct 2026 Model Names
+    const models = ["gemini-2.0-flash", "gemini-2.0-flash-lite"];
     
     for (const modelName of models) {
         try {
@@ -17,60 +17,67 @@ async function generateWithFallback(genAI, prompt, isImage = false) {
             const result = await model.generateContent(prompt);
             
             if (isImage) {
-                // Return the part containing image data
-                return result.response.candidates[0].content.parts.find(p => p.inlineData || p.fileData);
+                const part = result.response.candidates[0].content.parts.find(p => p.inlineData || p.fileData);
+                if (!part) throw new Error("No image data in response");
+                return part;
             }
             return result.response.text();
         } catch (error) {
-            if (error.status === 429) {
-                console.warn(`Rate limit hit on ${modelName}. Retrying with next model in 10s...`);
-                await new Promise(resolve => setTimeout(resolve, 10000));
+            if (error.status === 429 || error.status === 404) {
+                console.warn(`Issue with ${modelName} (${error.status}). Trying next model...`);
+                await new Promise(r => setTimeout(r, 2000));
             } else {
-                throw error; // Re-throw if it's not a rate limit issue
+                throw error;
             }
         }
     }
-    throw new Error("All models failed due to rate limits.");
+    throw new Error("All models failed.");
 }
 
 async function main() {
     const genAI = new GoogleGenerativeAI(CONFIG.GEMINI_KEY);
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 
-    // 1. Get Holiday Data (with Fallback)
+    // 1. Get Holiday Text
     const infoPrompt = `Today is ${dateStr}. Identify a fun national holiday for today. 
     Return JSON format: {"holiday": "Name", "fact": "One sentence fun fact"}`;
-    
     const textResponse = await generateWithFallback(genAI, infoPrompt);
     const data = JSON.parse(textResponse.replace(/```json|```/g, ""));
 
-    // 2. Generate Image (with Fallback)
-    const imgPrompt = `A high-quality digital illustration for "${data.holiday}". 
-    The text "${data.holiday}" must be clearly written in a bold, clean, stylized font at the top. 
-    Include two central characters: a small, round, vibrant yellow bear with a cream-colored belly patch 
-    and a cheerful, pill-shaped pink jellybean character wearing a signature teal baseball cap. 
-    The duo is celebrating ${data.holiday} in a vibrant gaming-themed environment.
-    Ensure the text is spelled exactly as "${data.holiday}".`;
+    // 2. Generate Image
+    const imgPrompt = `Digital art for "${data.holiday}". 
+    Text: "${data.holiday}" in bold white font at the top. 
+    Characters: A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. 
+    Style: Vibrant gaming aesthetic. NO other text.`;
 
-    const imageUrl = await generateWithFallback(genAI, [imgPrompt], true);
+    const imagePart = await generateWithFallback(genAI, [imgPrompt], true);
+    
+    // Convert image data for Discord
+    let imageUrl = "";
+    if (imagePart.inlineData) {
+        imageUrl = `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+    } else if (imagePart.fileData) {
+        imageUrl = imagePart.fileData.fileUri;
+    }
 
     // 3. Post to Discord
     const payload = {
         embeds: [{
             title: `🎨 Daily Doodle: ${data.holiday}`,
-            description: `**Did you know?** ${data.fact}`,
+            description: data.fact,
             image: { url: imageUrl },
             color: 0x00FFFF
         }]
     };
 
-    await fetch(CONFIG.DISCORD_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify(payload) 
+    const res = await fetch(CONFIG.DISCORD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
     });
 
-    console.log(`Successfully posted ${data.holiday}!`);
+    if (res.ok) console.log("Post successful!");
+    else console.error("Discord Error:", await res.text());
 }
 
 main().catch(console.error);
