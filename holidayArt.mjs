@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import fetch from 'node-fetch';
+import { FormData, Blob } from 'formdata-node';
 
 const CONFIG = {
     GEMINI_KEY: process.env.GEMINI_API_KEY,
@@ -9,53 +10,45 @@ const CONFIG = {
 async function main() {
     try {
         const client = new GoogleGenAI({ apiKey: CONFIG.GEMINI_KEY });
-        
-        // 1. Force West Coast (PST) Time
         const now = new Date();
         const pstDate = new Date(now.toLocaleString("en-US", {timeZone: "America/Los_Angeles"}));
-        
         const dateHeader = pstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-        const dayMonth = pstDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 
-        // 2. Get Holiday Data 
-        const textResult = await client.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `Today is ${dayMonth}. Identify a fun national holiday. Return ONLY JSON: {"holiday": "Name", "fact": "One sentence fun fact"}`
-        });
-        
-        const data = JSON.parse(textResult.text.replace(/```json|```/g, ""));
+        // 1. Get Holiday Data
+        const textResult = await client.getGenerativeModel({ model: "gemini-2.0-flash" }).generateContent(
+            `Today is February 23. Identify a fun national holiday. Return ONLY JSON: {"holiday": "Name", "fact": "One sentence fun fact"}`
+        );
+        const data = JSON.parse(textResult.response.text().replace(/```json|```/g, ""));
 
-        // 3. Generate the Image using a Free API (Pollinations.ai)
-        // We use the holiday name to build a custom prompt URL
-        const imgPrompt = `A vibrant digital illustration for ${data.holiday}. A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. Gaming aesthetic.`;
-        
-        // Encode the prompt so it can be safely used in a URL
-        const safePrompt = encodeURIComponent(imgPrompt);
-        // Add a random seed so it generates a new image every time
-        const randomSeed = Math.floor(Math.random() * 100000);
-        const imageUrl = `https://image.pollinations.ai/prompt/${safePrompt}?seed=${randomSeed}&width=1024&height=1024&nologo=true`;
+        // 2. Generate Image URL (Characters: small yellow bear + pink pill-shaped jellybean)
+        const imgPrompt = `Vibrant digital art for ${data.holiday}. A small, round, yellow bear with a cream belly and a cheerful pink pill-shaped jellybean wearing a teal baseball cap. High quality, 2d vector style.`;
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1e6)}`;
 
-        // 4. Package it up for Discord
-        // Note: We don't need to download the image, Discord will automatically embed this URL!
+        // 3. PHYSICAL DOWNLOAD (The secret sauce)
+        console.log("Downloading generated image...");
+        const imageResponse = await fetch(imageUrl);
+        const arrayBuffer = await imageResponse.arrayBuffer();
+        const imageBlob = new Blob([arrayBuffer], { type: 'image/png' });
+
+        // 4. Upload to Discord as an attachment
+        const formData = new FormData();
         const payload = {
             content: `**${dateHeader}**\n# ${data.holiday.toUpperCase()}\n${data.fact}`,
-            embeds: [{
-                image: { url: imageUrl },
-                color: 0x00FFFF
-            }]
         };
+
+        formData.set('payload_json', JSON.stringify(payload));
+        formData.set('files[0]', imageBlob, 'holiday_art.png');
 
         const res = await fetch(CONFIG.DISCORD_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: formData
         });
 
-        if (res.ok) console.log(`Successfully posted ${data.holiday} with image!`);
-        else console.error("Discord Error:", await res.text());
+        if (res.ok) console.log(`✅ Successfully posted ${data.holiday} with direct image upload!`);
+        else console.error("❌ Discord Error:", await res.text());
 
     } catch (err) {
-        console.error("Critical Bot Error:", err);
+        console.error("❌ Critical Bot Error:", err);
         process.exit(1);
     }
 }
