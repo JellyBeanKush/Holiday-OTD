@@ -2,9 +2,8 @@ name: Daily Holiday Doodle
 
 on:
   schedule:
-    # Runs at 17:00 UTC (9:00 AM PST) every day
     - cron: '0 17 * * *'
-  workflow_dispatch: # Allows you to run it manually for testing
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,9 +17,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
+        # This will create a temporary lock file on the server if one is missing
         run: npm install
 
       - name: Run Art Bot
